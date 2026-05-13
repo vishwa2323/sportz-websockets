@@ -42,6 +42,14 @@ matchRouter.post('/', async (req, res) => {
         if (res.app.locals.broadcastMatchCreated) {
             res.app.locals.broadcastMatchCreated(event);
         }
+        const broadcaster = res.app.locals.broadcastMatchCreated;
+        if (typeof broadcaster === "function") {
+            try {
+                broadcaster(event);
+            } catch (err) {
+                console.error("Failed to broadcast match_created", err);
+            }
+        }
         return res.status(201).json({ data: event });
 
     } catch (e) {
