@@ -22,10 +22,10 @@ matchRouter.get('/', async (req, res) => {
 
 matchRouter.post('/', async (req, res) => {
     const parsed = createMatchSchema.safeParse(req.body);//to validate the incoming request body
-    const { data: { startTime, endTime } } = parsed;
     if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.issues });
     }
+    const { data: { startTime, endTime } } = parsed;
 
     try {
         const [event] = await db.insert(matches).values({
@@ -39,6 +39,9 @@ matchRouter.post('/', async (req, res) => {
 
 
         }).returning();
+        if (res.app.locals.broadcastMatchCreated) {
+            res.app.locals.broadcastMatchCreated(event);
+        }
         return res.status(201).json({ data: event });
 
     } catch (e) {
