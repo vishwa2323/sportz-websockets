@@ -4,6 +4,7 @@ import { getMatchStatus } from "../utils/match-status.js";
 import { db } from "../db/db.js";
 import { matches } from "../db/schema.js";
 import { desc } from "drizzle-orm";
+import { commentaryRouter } from "./commentary.js";
 export const matchRouter = Router();
 const MAX_LIMIT = 100;
 matchRouter.get('/', async (req, res) => {
@@ -25,7 +26,7 @@ matchRouter.post('/', async (req, res) => {
     if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.issues });
     }
-    const { data: { startTime, endTime } } = parsed;
+    const { data: { startTime, endTime, homeScore, awayScore } } = parsed;
 
     try {
         const [event] = await db.insert(matches).values({
@@ -51,7 +52,9 @@ matchRouter.post('/', async (req, res) => {
         return res.status(201).json({ data: event });
 
     } catch (e) {
-        res.status(500).json({ error: "Failed to create match", details: JSON.stringify(e) });
+        res.status(500).json({ error: "Failed to create match", details: e instanceof Error ? e.message : String(e) });
     }
 
 })
+
+matchRouter.use('/:id/commentary', commentaryRouter);
