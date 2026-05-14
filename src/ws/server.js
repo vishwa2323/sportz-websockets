@@ -1,12 +1,75 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { wsArcjet } from "../arcjet.js";
+
+const matchSubscribers = new Map();
+
+function subscribe(matchId, socket) {
+    if (!matchSubscribers.has(matchId)) {
+        matchSubscribers.set(matchId, new Set());
+    }
+    matchSubscribers.get(matchId).add(socket);
+}
+
+function unsubscribe(matchId, socket) {
+    const subscribers = matchSubscribers.get(matchId);
+    if (!subscribers) return;
+    subscribers.delete(socket);
+    socket.subscriptions.delete(matchId);
+    if (subscribers.size === 0) {
+        matchSubscribers.delete(matchId);
+    }
+}
+
+function cleanupSubscription(socket) {
+    for (const matchId of socket.subscriptions) {
+        unsubscribe(matchId, socket);
+    }
+}
+
+function broadcastToMatch(matchId, payload) {
+    const subscribers = matchSubscribers.get(matchId);
+    if (!subscribers || subscribers.size === 0) return;
+    const message = JSON.stringify(payload);
+    for (const sub of subscribers) {
+        if (sub.readyState === WebSocket.OPEN) {
+            sub.send(message);
+        }
+    }
+}
+
 function sendJson(socket, payload) {
     if (socket.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify(payload));
-
-
 }
-function broadcast(wss, payload) {
+
+function handleMessage(socket, data) {
+    let message;
+    try {
+        message = JSON.parse(data.toString());
+    } catch (e) {
+        sendJson(socket, { type: 'error', message: 'invalid json' });
+        return;
+    }
+
+    if (message?.type === 'subscribe' && Number.isInteger(message.matchId)) {
+        subscribe(message.matchId, socket);
+        socket.subscriptions.add(message.matchId);
+        sendJson(socket, { type: 'subscribed', matchId: message.matchId });
+        return;
+    }
+    if (message?.type === 'unsubscribe' && Number.isInteger(message.matchId)) {
+        unsubscribe(message.matchId, socket);
+        sendJson(socket, { type: 'unsubscribed', matchId: message.matchId });
+        return;
+    }
+    if (message?.type === 'commentary_update' && Number.isInteger(message.matchId)) {
+        broadcastToMatch(message.matchId, { type: 'commentary_update', data: message.data });
+        return;
+    }
+    sendJson(socket, { type: 'unknown_command' });
+}
+
+function broadcastToAll(wss, payload) {
     for (const client of wss.clients) {
         if (client.readyState !== WebSocket.OPEN) continue;
         client.send(JSON.stringify(payload));
@@ -21,6 +84,26 @@ export function attachWebSocketServer(server) {
     });
 
     wss.on('connection', async (socket, req) => {
+        // 1. Attach listeners synchronously FIRST to prevent race conditions
+        // where the client sends messages before Arcjet finishes validating.
+        socket.isAlive = true;
+        socket.subscriptions = new Set();
+        
+        socket.on('pong', () => {
+            socket.isAlive = true;
+        });
+        
+        socket.on('message', (data) => {
+            handleMessage(socket, data);
+        });
+
+        socket.on('close', () => {
+            cleanupSubscription(socket);
+        });
+
+        socket.on('error', console.error);
+
+        // 2. Perform async Arcjet validation
         if (wsArcjet) {
             try {
                 const decision = await wsArcjet.protect(req);
@@ -30,7 +113,6 @@ export function attachWebSocketServer(server) {
                     socket.close(code, reason);
                     return;
                 }
-
             } catch (e) {
                 console.error('ws connection error', e);
                 socket.close(1011, 'server security error');
@@ -38,14 +120,10 @@ export function attachWebSocketServer(server) {
             }
         }
 
-        socket.isAlive = true;
-        socket.on('pong', () => {
-            socket.isAlive = true;
-        });
+        // 3. Send welcome message once fully connected and validated
         sendJson(socket, { type: 'welcome' });
-        socket.on('error', console.error);
-
     });
+
     const interval = setInterval(() => {
         wss.clients.forEach(client => {
             if (client.isAlive === false) return client.terminate();
@@ -53,10 +131,16 @@ export function attachWebSocketServer(server) {
             client.ping();
         })
     }, 30000);
-    wss.on("close", () => { clearInterval(interval); })
-    function broadcastMatchCreated(match) {
-        broadcast(wss, { type: 'match_created', data: match })
 
+    wss.on("close", () => { clearInterval(interval); });
+
+    function broadcastMatchCreated(match) {
+        broadcastToAll(wss, { type: 'match_created', data: match });
     }
-    return { broadcastMatchCreated }
+
+    function broadcastCommentary(matchId, comment) {
+        broadcastToMatch(matchId, { type: 'commentary_update', data: comment });
+    }
+
+    return { broadcastMatchCreated, broadcastCommentary };
 }
