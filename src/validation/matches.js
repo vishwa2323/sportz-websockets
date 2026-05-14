@@ -18,8 +18,8 @@ export const createMatchSchema = z.object({
   sport: z.string().min(1, 'sport is required'),
   homeTeam: z.string().min(1, 'homeTeam is required'),
   awayTeam: z.string().min(1, 'awayTeam is required'),
-  startTime: z.string().datetime({ message: 'startTime must be a valid ISO date string' }),
-  endTime: z.string().datetime({ message: 'endTime must be a valid ISO date string' }),
+  startTime: z.iso.datetime(),
+  endTime: z.iso.datetime(),
   homeScore: z.coerce.number().int().nonnegative().optional(),
   awayScore: z.coerce.number().int().nonnegative().optional(),
 }).superRefine((data, ctx) => {
