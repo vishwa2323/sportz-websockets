@@ -30,13 +30,20 @@ export function attachWebSocketServer(server) {
 
     });
     const interval = setInterval(() => {
-        wss.clients.forEach(client => {
-            if (ws.isAlive === false) return ws.terminate();
-            ws.isAlive = false;
-            ws.ping();
-        })
+        wss.clients.forEach((client) => {
+            if (client.isAlive === false) {
+                client.terminate();
+                return;
+            }
+
+            client.isAlive = false;
+            client.ping();
+        });
     }, 30000);
-    wss.on("close", () => { clearInterval(interval); })
+
+    wss.on("close", () => {
+        clearInterval(interval);
+    });
     function broadcastMatchCreated(match) {
         broadcast(wss, { type: 'match_created', data: match })
 
