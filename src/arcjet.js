@@ -24,13 +24,13 @@ export const wsArcjet = arcjetkey ?
         ],
     }) : null;
 
-export function securityMiddleware(arcjet) {
+export function securityMiddleware() {
     return async (req, res, next) => {
-        if (!httpArcjet) return next;
+        if (!httpArcjet) return next();
         try {
-            const descision = await httpArcjet.protect(req);
-            if (descision.isDenied()) {
-                if (descision.reason.isRateLimit()) {
+            const decision = await httpArcjet.protect(req);
+            if (decision.isDenied()) {
+                if (decision.reason.isRateLimit()) {
                     return res.status(429).json({ error: 'Too many requests' });
                 }
                 return res.status(403).json({ error: 'Access Denied' });
